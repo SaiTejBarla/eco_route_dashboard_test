@@ -1,6 +1,6 @@
-streamlit
-pandas
-folium
-streamlit-folium
-numpy
+streamlit==1.48.1
+pandas==2.3.2
+numpy==2.3.2
+folium==0.20.0
+streamlit-folium==0.25.1
 streamlit-autorefresh

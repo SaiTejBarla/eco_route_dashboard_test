@@ -12,7 +12,10 @@ st.set_page_config(page_title="EcoRoute AI", layout="wide")
 
 # --- Sidebar Navigation ---
 st.sidebar.title("EcoRoute AI Dashboard")
-page = st.sidebar.radio("Go to:", ["Home", "Bin Detection", "IoT Simulation", "Route Optimization", "Agent Reports"])
+page = st.sidebar.radio(
+    "Go to:",
+    ["Home", "Bin Detection", "IoT Simulation", "Route Optimization", "Driver Dashboard", "Agent Reports"]
+)
 
 # --- Helper Functions ---
 def haversine(lat1, lon1, lat2, lon2):
@@ -24,6 +27,17 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * asin(sqrt(a))
     r = 6371
     return c * r
+
+def nearest_neighbor_route(start, bins):
+    """Nearest neighbor route for a list of bins [(lat, lon, id), ...]."""
+    route = [start]
+    unvisited = bins.copy()
+    while unvisited:
+        last = route[-1]
+        next_bin = min(unvisited, key=lambda x: haversine(last[0], last[1], x[0], x[1]))
+        route.append(next_bin)
+        unvisited.remove(next_bin)
+    return route
 
 # --- Initialize bins in session_state ---
 if "bins_df" not in st.session_state:
@@ -84,7 +98,7 @@ elif page == "IoT Simulation":
 
     # Folium map
     m = folium.Map(location=[17.74, 83.255], zoom_start=12)
-    for i, row in df.iterrows():
+    for _, row in df.iterrows():
         if row["Fill Level (%)"] < 50:
             color = "#2ca02c"
         elif row["Fill Level (%)"] < 70:
@@ -103,7 +117,7 @@ elif page == "IoT Simulation":
             tooltip=f"Fill: {row['Fill Level (%)']}%"
         ).add_to(m)
 
-    # Legend with dark background
+    # Legend
     legend_html = '''
 <div style="position: fixed; 
             bottom: 50px; left: 50px; width: 160px; height: 100px; 
@@ -124,10 +138,9 @@ elif page == "Route Optimization":
     st.markdown("Showing bins with fill level > 70%")
 
     high_fill_bins = df[df["Fill Level (%)"] > 70].copy()
-
-    # Nearest-neighbor route
     bins_list = high_fill_bins.to_dict('records')
     route = []
+
     if bins_list:
         route.append(bins_list.pop(0))
         while bins_list:
@@ -145,26 +158,60 @@ elif page == "Route Optimization":
             popup=f"Bin {bin['Bin ID']} - {bin['Fill Level (%)']}%",
             icon=folium.Icon(color="red", icon="trash")
         ).add_to(m)
-        if prev_bin is not None:
+        if prev_bin:
             folium.PolyLine(
                 locations=[[prev_bin["Latitude"], prev_bin["Longitude"]],
                            [bin["Latitude"], bin["Longitude"]]],
                 color="blue", weight=3
             ).add_to(m)
         prev_bin = bin
-
     st_folium(m, width=700)
+
+# --- DRIVER DASHBOARD PAGE (Person 2) ---
+elif page == "Driver Dashboard":
+    st.header("🚛 Driver Dashboard")
+    depot = (17.74, 83.255)
+
+    target_bins = df[df["Fill Level (%)"] >= 70][["Latitude", "Longitude", "Bin ID"]].values.tolist()
+    if "route" not in st.session_state:
+        st.session_state.route = []
+    if "collected" not in st.session_state:
+        st.session_state.collected = []
+
+    if st.button("🔄 Generate Route"):
+        if target_bins:
+            st.session_state.route = nearest_neighbor_route(depot, [(lat, lon, bid) for lat, lon, bid in target_bins])
+            st.session_state.collected = []
+            st.success("✅ Route generated!")
+        else:
+            st.warning("No bins above threshold to collect.")
+
+    if st.session_state.route:
+        m = folium.Map(location=depot, zoom_start=13)
+        folium.Marker(depot, popup="Depot", icon=folium.Icon(color="green")).add_to(m)
+        for lat, lon, bid in st.session_state.route[1:]:
+            color = "blue" if bid not in st.session_state.collected else "gray"
+            folium.Marker([lat, lon], popup=f"Bin {bid}", icon=folium.Icon(color=color)).add_to(m)
+        folium.PolyLine([(p[0], p[1]) for p in st.session_state.route], color="blue", weight=2.5).add_to(m)
+        st_folium(m, width=700, height=500)
+
+        st.write("### Route Progress")
+        for lat, lon, bid in st.session_state.route[1:]:
+            if bid not in st.session_state.collected:
+                if st.button(f"✅ Collect Bin {bid}"):
+                    st.session_state.collected.append(bid)
+                    st.experimental_rerun()
+
+        st.info(f"Bins Collected: {len(st.session_state.collected)} / {len(st.session_state.route)-1}")
 
 # --- AGENT REPORTS PAGE ---
 elif page == "Agent Reports":
     st.header("📝 AI Agent Reports")
-    st.markdown("""
+    st.markdown(f"""
     **Summary for Today:**  
-    - Bins collected: {}  
-    - Pending bins: {}  
-    - Estimated fuel saved: {}%  
+    - Bins collected: {len(df[df["Fill Level (%)"] > 70])}  
+    - Pending bins: {len(df[df["Fill Level (%)"] <= 70])}  
+    - Estimated fuel saved: 12%  
 
     *(This can be dynamically updated by integrating AgentOps outputs)*
-    """.format(len(df[df["Fill Level (%)"] > 70]),
-               len(df[df["Fill Level (%)"] <= 70]),
-               12))
+    """)
