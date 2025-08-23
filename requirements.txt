@@ -2,6 +2,5 @@ streamlit
 pandas
 folium
 streamlit-folium
-networkx
 numpy
-Pillow
+streamlit-autorefresh
