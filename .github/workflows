@@ -1,0 +1,14 @@
+name: Keep Streamlit App Awake
+
+on:
+  schedule:
+    - cron: '*/20 * * * *'  # Runs every 20 minutes
+  workflow_dispatch:       # Manual trigger option
+
+jobs:
+  wake_app:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping Streamlit App
+        run: curl -sSf https://ecoroutedashboardtest-ip2tcrjt8gjblpaaauhw9b.streamlit.app/
